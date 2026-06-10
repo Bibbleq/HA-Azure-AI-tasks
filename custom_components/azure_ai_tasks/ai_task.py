@@ -27,7 +27,9 @@ from .const import CONF_API_KEY, CONF_ENDPOINT, CONF_CHAT_MODEL, CONF_IMAGE_MODE
 _LOGGER = logging.getLogger(__name__)
 
 # API Constants
-API_VERSION_CHAT = "2024-02-15-preview"
+# GPT-5 / reasoning models and the max_completion_tokens parameter require a
+# recent api-version; the old 2024-02-15-preview rejects them.
+API_VERSION_CHAT = "2025-04-01-preview"
 API_VERSION_IMAGE_LATEST = "2025-04-01-preview"
 API_VERSION_IMAGE_LEGACY = "2024-10-21"
 
@@ -41,6 +43,9 @@ DEFAULT_WIDTH = 1024
 DEFAULT_HEIGHT = 1024
 DEFAULT_MIME_TYPE = "image/png"
 MAX_TOKENS = 1000
+# Reasoning models (GPT-5) spend part of the completion budget on hidden
+# reasoning tokens, so a small limit can yield empty output. Give them headroom.
+MAX_COMPLETION_TOKENS = 4000
 DEFAULT_TEMPERATURE = 0.7
 
 # Media Source Prefixes
@@ -470,9 +475,14 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
         model: str
     ) -> dict[str, Any]:
         """Build chat completion payload with or without attachments."""
-        # Determine which token parameter to use based on the model
-        token_param = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
-        
+        # GPT-5 / reasoning models use max_completion_tokens (with headroom for
+        # hidden reasoning tokens) and must NOT be sent a custom temperature -
+        # they only accept the default value of 1.
+        is_reasoning = _uses_max_completion_tokens(model)
+        token_param = "max_completion_tokens" if is_reasoning else "max_tokens"
+        token_value = MAX_COMPLETION_TOKENS if is_reasoning else MAX_TOKENS
+        extra_params: dict[str, Any] = {} if is_reasoning else {"temperature": DEFAULT_TEMPERATURE}
+
         if attachments:
             message_content: list[dict[str, Any]] = [{"type": "text", "text": user_message}]
             for attachment in attachments:
@@ -490,14 +500,14 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
             
             return {
                 "messages": [{"role": "user", "content": message_content}],
-                token_param: MAX_TOKENS,
-                "temperature": DEFAULT_TEMPERATURE
+                token_param: token_value,
+                **extra_params,
             }
         else:
             return {
                 "messages": [{"role": "user", "content": user_message}],
-                token_param: MAX_TOKENS,
-                "temperature": DEFAULT_TEMPERATURE
+                token_param: token_value,
+                **extra_params,
             }
 
     async def _handle_flux_image_edit(
@@ -661,15 +671,17 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
             except Exception as err:
                 _LOGGER.warning("Failed to process attachment: %s", err)
         
-        # Determine which token parameter to use based on the model
-        token_param = "max_completion_tokens" if _uses_max_completion_tokens(image_model) else "max_tokens"
-        
+        # GPT-5 / reasoning models: max_completion_tokens (with headroom) and no
+        # custom temperature.
+        is_reasoning = _uses_max_completion_tokens(image_model)
+        token_param = "max_completion_tokens" if is_reasoning else "max_tokens"
         payload = {
             "messages": [{"role": "user", "content": message_content}],
-            token_param: MAX_TOKENS,
-            "temperature": DEFAULT_TEMPERATURE,
+            token_param: MAX_COMPLETION_TOKENS if is_reasoning else MAX_TOKENS,
             "model": image_model
         }
+        if not is_reasoning:
+            payload["temperature"] = DEFAULT_TEMPERATURE
         url = f"{self._endpoint}/openai/deployments/{image_model}/chat/completions"
         headers = self._get_headers()
         
@@ -844,8 +856,24 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
                     
                 result = await response.json()
                 if "choices" in result and len(result["choices"]) > 0:
-                    text = result["choices"][0]["message"]["content"].strip()
-                    
+                    choice = result["choices"][0]
+                    # Reasoning models (GPT-5) can return content=null - e.g. when
+                    # the completion budget was spent on reasoning (finish_reason
+                    # "length"). Guard against it instead of crashing on .strip().
+                    text = (choice.get("message", {}).get("content") or "").strip()
+                    if not text:
+                        finish_reason = choice.get("finish_reason")
+                        _LOGGER.error(
+                            "Azure AI returned empty content (finish_reason=%s): %s",
+                            finish_reason, result,
+                        )
+                        raise HomeAssistantError(
+                            "Azure AI returned an empty response"
+                            + (" - the model hit its token limit before producing"
+                               " output (try a shorter task)"
+                               if finish_reason == "length" else "")
+                        )
+
                     # If the task requires structured data, parse as JSON
                     if task.structure:
                         data = self._parse_structured_response(text)
