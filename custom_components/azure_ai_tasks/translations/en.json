@@ -11,14 +11,27 @@
           "chat_model": "Chat Model (optional)",
           "image_model": "Image Model (optional)"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Azure AI Tasks",
+        "description": "Update your Azure AI endpoint, API key, and model(s). At least one model must be configured.",
+        "data": {
+          "name": "Name",
+          "endpoint": "Azure AI Endpoint URL",
+          "api_key": "API Key",
+          "chat_model": "Chat Model (optional)",
+          "image_model": "Image Model (optional)"
+        }
       }
     },
     "error": {
       "unknown": "Unexpected error occurred",
+      "cannot_connect": "Failed to connect - check the endpoint URL and API key",
       "no_models_configured": "At least one model (chat or image) must be configured"
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Reconfiguration was successful"
     }
   },
   "options": {

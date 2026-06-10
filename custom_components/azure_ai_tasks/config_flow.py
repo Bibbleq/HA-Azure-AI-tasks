@@ -94,6 +94,67 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Reconfigure an existing entry (endpoint, API key, name, models).
+
+        Lets the user update the connection details in place - e.g. when the
+        Azure endpoint or API key changes - without removing and re-adding the
+        integration.
+        """
+        reconfigure_entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            chat_model = user_input.get(CONF_CHAT_MODEL, "").strip()
+            image_model = user_input.get(CONF_IMAGE_MODEL, "").strip()
+
+            if not chat_model and not image_model:
+                errors["base"] = "no_models_configured"
+            else:
+                try:
+                    await self._test_credentials(
+                        user_input[CONF_ENDPOINT], user_input[CONF_API_KEY]
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    _LOGGER.exception("Reconfigure credential validation failed")
+                    errors["base"] = "cannot_connect"
+                else:
+                    return self.async_update_reload_and_abort(
+                        reconfigure_entry,
+                        title=user_input.get(CONF_NAME, DEFAULT_NAME),
+                        data_updates={
+                            CONF_NAME: user_input.get(CONF_NAME, DEFAULT_NAME),
+                            CONF_ENDPOINT: user_input[CONF_ENDPOINT],
+                            CONF_API_KEY: user_input[CONF_API_KEY],
+                            CONF_CHAT_MODEL: chat_model,
+                            CONF_IMAGE_MODEL: image_model,
+                        },
+                        # Models now live in data; clear any stale options copy so
+                        # they can't shadow the reconfigured values.
+                        options={},
+                    )
+
+        # Pre-fill from the current entry (options take precedence over data, as
+        # the options flow may have updated the model selections).
+        current = {**reconfigure_entry.data, **reconfigure_entry.options}
+        if user_input is not None:
+            current = {**current, **user_input}
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)): str,
+                vol.Required(CONF_ENDPOINT, default=current.get(CONF_ENDPOINT, "")): str,
+                vol.Required(CONF_API_KEY, default=current.get(CONF_API_KEY, "")): str,
+                vol.Optional(CONF_CHAT_MODEL, default=current.get(CONF_CHAT_MODEL, "")): str,
+                vol.Optional(CONF_IMAGE_MODEL, default=current.get(CONF_IMAGE_MODEL, "")): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=schema, errors=errors
+        )
+
     async def _test_credentials(self, endpoint: str, api_key: str) -> bool:
         """Test if we can authenticate with the host."""
         session = async_get_clientsession(self.hass)
