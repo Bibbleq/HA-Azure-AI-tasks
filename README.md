@@ -1,13 +1,18 @@
 # Azure AI Tasks - Home Assistant Integration
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub release](https://img.shields.io/github/release/loryanstrant/HA-Azure-AI-Tasks.svg)](https://github.com/loryanstrant/HA-Azure-AI-Tasks/releases/)
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](https://github.com/hacs/integration)
+[![Release](https://img.shields.io/github/v/release/loryanstrant/HA-Azure-AI-tasks?style=flat-square)](https://github.com/loryanstrant/HA-Azure-AI-tasks/releases)
+[![Release date](https://img.shields.io/github/release-date/loryanstrant/HA-Azure-AI-tasks?style=flat-square)](https://github.com/loryanstrant/HA-Azure-AI-tasks/releases)
+[![Downloads](https://img.shields.io/github/downloads/loryanstrant/HA-Azure-AI-tasks/total?style=flat-square)](https://github.com/loryanstrant/HA-Azure-AI-tasks/releases)
+[![License](https://img.shields.io/github/license/loryanstrant/HA-Azure-AI-tasks?style=flat-square)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/loryanstrant/HA-Azure-AI-tasks?style=flat-square)](https://github.com/loryanstrant/HA-Azure-AI-tasks/commits)
+[![Stars](https://img.shields.io/github/stars/loryanstrant/HA-Azure-AI-tasks?style=flat-square)](https://github.com/loryanstrant/HA-Azure-AI-tasks/stargazers)
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=loryanstrant&repository=HA-Azure-AI-tasks&category=integration)
 
 A Home Assistant custom integration that facilitates AI tasks using Azure AI services.
 
 <p align="center"><img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/934b88ed-f038-474f-9211-4417717e5e84" /><p>
-
-
 
 ## Features
 
@@ -61,11 +66,6 @@ Or replace steps 1-6 with this:
 
 <img width="383" height="478" alt="image" src="https://github.com/user-attachments/assets/8932c51a-8fcb-42bc-9e22-ead143c610d7" />
 
-
-
-
-
-
 ### Reconfiguration
 
 To change AI models without re-entering credentials:
@@ -81,13 +81,9 @@ To change AI models without re-entering credentials:
 
 <img width="1072" height="700" alt="image" src="https://github.com/user-attachments/assets/598b8c28-7663-4507-be63-22413cac4b9d" />
 
-
-
 ## Usage
 
 Once configured, the integration provides an AI Task entity that can be used in automations and scripts to process AI tasks using your Azure AI service.
-
-
 
 ### Chat/Text Generation
 Example service call for generating text responses:
@@ -113,7 +109,6 @@ data:
 <img width="1413" height="1164" alt="image" src="https://github.com/user-attachments/assets/b1d7c898-bb54-4398-838f-838f4a5e26fa" />
 <img width="1360" height="1246" alt="Generated AI image of a futuristic smart home with holographic displays and AI assistants" src="https://github.com/user-attachments/assets/f748fffd-a379-4745-845f-1fecdff31e44" />
 
-
 **Advanced Image Generation with Parameters:**
 ```yaml
 action: ai_image.generate_image
@@ -130,8 +125,6 @@ data:
 - **quality**: Image quality for DALL-E 3 (standard, hd)  
 - **style**: Image style for DALL-E 3 (natural, vivid)
 - **n**: Number of images to generate (1-10 for DALL-E 2, 1 for DALL-E 3)
-
-
 
 ### Image/Video Analysis with Attachments
 Example service calls for analyzing images or camera streams:
@@ -153,7 +146,6 @@ data:
 <img width="1390" height="1247" alt="image" src="https://github.com/user-attachments/assets/c475523b-37af-4e76-9336-bc148c5a1a5d" />
 <br><br>
 
-
 **Analyze Uploaded Image:**
 ```yaml
 action: ai_task.generate_data
@@ -169,8 +161,6 @@ data:
       media_class: image
 ```
 <img width="1372" height="1222" alt="image" src="https://github.com/user-attachments/assets/28e81122-463d-4d37-8df9-1a7c0d902f86" />
-
-
 
 ### Available Models
 
@@ -194,7 +184,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Development Approach
 <img width="256" height="256" alt="Vibe Coding with GitHub Copilot 256x256" src="https://github.com/user-attachments/assets/bb41d075-6b3e-4f2b-a88e-94b2022b5d4f" />
-
 
 ## License
 
