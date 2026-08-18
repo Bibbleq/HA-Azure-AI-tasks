@@ -88,7 +88,11 @@ def _is_reasoning_model(model: str) -> bool:
     if not model:
         return False
     model_lower = model.lower()
-    return model_lower.startswith("gpt-5") or bool(re.match(r"^o\d", model_lower))
+    return (
+        model_lower.startswith("gpt-5")
+        or model_lower.startswith("gpt-chat")  # gpt-chat-latest alias
+        or bool(re.match(r"^o\d", model_lower))
+    )
 
 
 async def async_setup_entry(
@@ -622,17 +626,38 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
         headers = self._get_headers()
 
         try:
-            async with session.post(
-                f"{self._endpoint}{RESPONSES_API_PATH}",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    _LOGGER.error("Azure AI Responses API error: %s", error_text)
-                    self._handle_api_error(response.status, error_text, model_to_use)
+            result: dict[str, Any] | None = None
+            for attempt in range(2):
+                async with session.post(
+                    f"{self._endpoint}{RESPONSES_API_PATH}",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        # Some models (e.g. gpt-chat-latest) only accept the
+                        # default temperature but aren't detectable by name -
+                        # drop the parameter and retry once.
+                        if (
+                            attempt == 0
+                            and response.status == 400
+                            and "temperature" in payload
+                            and "temperature" in error_text
+                        ):
+                            _LOGGER.debug(
+                                "Model '%s' rejected temperature; retrying without it",
+                                model_to_use,
+                            )
+                            del payload["temperature"]
+                            continue
+                        _LOGGER.error("Azure AI Responses API error: %s", error_text)
+                        self._handle_api_error(response.status, error_text, model_to_use)
 
-                result = await response.json()
+                    result = await response.json()
+                    break
+
+            if result is None:
+                raise HomeAssistantError("Azure AI returned an empty response")
 
                 if result.get("status") == "incomplete":
                     reason = (result.get("incomplete_details") or {}).get("reason")
