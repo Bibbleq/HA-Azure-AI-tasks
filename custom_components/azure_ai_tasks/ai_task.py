@@ -659,35 +659,35 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
             if result is None:
                 raise HomeAssistantError("Azure AI returned an empty response")
 
-                if result.get("status") == "incomplete":
-                    reason = (result.get("incomplete_details") or {}).get("reason")
-                    _LOGGER.error(
-                        "Azure AI response incomplete (reason=%s): %s", reason, result
-                    )
-                    raise HomeAssistantError(
-                        "Azure AI returned an incomplete response"
-                        + (" - the model hit its token limit before producing"
-                           " output (try a shorter task)"
-                           if reason == "max_output_tokens" else "")
-                    )
+            if result.get("status") == "incomplete":
+                reason = (result.get("incomplete_details") or {}).get("reason")
+                _LOGGER.error(
+                    "Azure AI response incomplete (reason=%s): %s", reason, result
+                )
+                raise HomeAssistantError(
+                    "Azure AI returned an incomplete response"
+                    + (" - the model hit its token limit before producing"
+                       " output (try a shorter task)"
+                       if reason == "max_output_tokens" else "")
+                )
 
-                text = self._extract_responses_text(result)
-                if not text:
-                    _LOGGER.error(
-                        "Azure AI Responses API returned empty content: %s", result
-                    )
-                    raise HomeAssistantError("Azure AI returned an empty response")
+            text = self._extract_responses_text(result)
+            if not text:
+                _LOGGER.error(
+                    "Azure AI Responses API returned empty content: %s", result
+                )
+                raise HomeAssistantError("Azure AI returned an empty response")
 
-                if task.structure:
-                    data = self._parse_structured_response(text)
-                    return ai_task.GenDataTaskResult(
-                        conversation_id=chat_log.conversation_id,
-                        data=data,
-                    )
+            if task.structure:
+                data = self._parse_structured_response(text)
                 return ai_task.GenDataTaskResult(
                     conversation_id=chat_log.conversation_id,
-                    data=text,
+                    data=data,
                 )
+            return ai_task.GenDataTaskResult(
+                conversation_id=chat_log.conversation_id,
+                data=text,
+            )
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Error communicating with Azure AI: %s", err)
