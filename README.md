@@ -24,6 +24,8 @@ A Home Assistant custom integration that facilitates AI tasks using Azure AI ser
 - **Flexible entity configuration** - create chat-only, image-only, or combined entities
 - **Reconfiguration support** - change models without re-entering credentials
 - **Multiple entry support** - use different API endpoints and keys for different purposes
+- **🌐 Responses API (v1) support** - opt in to Azure's stable v1 Responses API for chat tasks (no preview api-version pinning)
+- **🔎 Web search grounding** - let the model search the web (Grounding with Bing) and return up-to-date answers
 - Compatible with Azure OpenAI and other Azure AI services
 - HACS ready for easy installation
 
@@ -80,6 +82,31 @@ To change AI models without re-entering credentials:
 - **Combined entities**: Configure both models
 
 <img width="1072" height="700" alt="image" src="https://github.com/user-attachments/assets/598b8c28-7663-4507-be63-22413cac4b9d" />
+
+## Responses API and Web Search
+
+The integration can route chat tasks through Azure's **v1 Responses API** (`/openai/v1/responses`) instead of the Chat Completions API. Two toggles are available during setup, reconfigure, and in the options flow:
+
+- **Use Responses API (v1) for chat tasks** - switches text/data generation to the stable v1 surface. No preview `api-version` is used, reasoning models (GPT-5 family, o-series) are handled natively via `max_output_tokens`, and attachments/structured output work exactly as before. Image generation is unaffected.
+- **Enable web search** - adds the `web_search` tool to chat tasks so the model can retrieve real-time information from the public web before answering. Enabling web search automatically uses the Responses API, even if the first toggle is off.
+
+Example - a task that needs current information:
+
+```yaml
+action: ai_task.generate_data
+data:
+  task_name: news check
+  instructions: What are the latest headlines about Microsoft Copilot this week?
+  entity_id: ai_task.azure_ai_tasks
+```
+
+**Important notes on web search:**
+
+- Web search uses [Grounding with Bing Search](https://learn.microsoft.com/azure/foundry/openai/how-to/web-search), which incurs **additional per-search costs** on top of token usage, and data sent to it flows **outside your Azure compliance and geo boundary** (the Microsoft Data Protection Addendum does not apply).
+- Web search requires a GPT-4-class or later model deployment. Reasoning models (GPT-5 family, o-series) perform richer agentic searches but take longer.
+- The model decides whether to search based on the task - not every request triggers a search.
+- Web search can be blocked at the Azure subscription level; if searches fail, check with your subscription admin.
+- A separate config entry with web search disabled is recommended for fast, deterministic automations - searching adds latency.
 
 ## Usage
 

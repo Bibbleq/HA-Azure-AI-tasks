@@ -7,6 +7,8 @@ CONF_ENDPOINT = "endpoint"
 CONF_API_KEY = "api_key"
 CONF_CHAT_MODEL = "chat_model"
 CONF_IMAGE_MODEL = "image_model"
+CONF_USE_RESPONSES_API = "use_responses_api"
+CONF_ENABLE_WEB_SEARCH = "enable_web_search"
 
 # Default values
 DEFAULT_NAME = "Azure AI Tasks"

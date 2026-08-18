@@ -22,7 +22,15 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.json import json_loads
 
-from .const import CONF_API_KEY, CONF_ENDPOINT, CONF_CHAT_MODEL, CONF_IMAGE_MODEL, DOMAIN
+from .const import (
+    CONF_API_KEY,
+    CONF_ENDPOINT,
+    CONF_CHAT_MODEL,
+    CONF_IMAGE_MODEL,
+    CONF_USE_RESPONSES_API,
+    CONF_ENABLE_WEB_SEARCH,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +40,9 @@ _LOGGER = logging.getLogger(__name__)
 API_VERSION_CHAT = "2025-04-01-preview"
 API_VERSION_IMAGE_LATEST = "2025-04-01-preview"
 API_VERSION_IMAGE_LEGACY = "2024-10-21"
+
+# The v1 Responses API uses a stable path with no api-version parameter.
+RESPONSES_API_PATH = "/openai/v1/responses"
 
 # Model Constants
 VISION_MODELS = ["gpt-image-1", "flux.1-kontext-pro", "gpt-4v", "gpt-4o"]
@@ -66,6 +77,18 @@ def _uses_max_completion_tokens(model: str) -> bool:
     model_lower = model.lower()
     # GPT-5 models use max_completion_tokens
     return model_lower.startswith("gpt-5")
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """Check if the model is a reasoning model (GPT-5 family or o-series).
+
+    Reasoning models only accept the default temperature, so custom
+    temperature values must not be sent to them.
+    """
+    if not model:
+        return False
+    model_lower = model.lower()
+    return model_lower.startswith("gpt-5") or bool(re.match(r"^o\d", model_lower))
 
 
 async def async_setup_entry(
@@ -169,6 +192,26 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
         configured_model = (self._config_entry.options.get(CONF_IMAGE_MODEL) or 
                            self._config_entry.data.get(CONF_IMAGE_MODEL, self._image_model))
         return configured_model.strip() if configured_model else None
+
+    @property
+    def web_search_enabled(self) -> bool:
+        """Return whether web search is enabled for chat tasks."""
+        if CONF_ENABLE_WEB_SEARCH in self._config_entry.options:
+            return bool(self._config_entry.options[CONF_ENABLE_WEB_SEARCH])
+        return bool(self._config_entry.data.get(CONF_ENABLE_WEB_SEARCH, False))
+
+    @property
+    def use_responses_api(self) -> bool:
+        """Return whether chat tasks should use the v1 Responses API.
+
+        Web search is only available on the Responses API, so enabling it
+        implies Responses mode even if the toggle is off.
+        """
+        if self.web_search_enabled:
+            return True
+        if CONF_USE_RESPONSES_API in self._config_entry.options:
+            return bool(self._config_entry.options[CONF_USE_RESPONSES_API])
+        return bool(self._config_entry.data.get(CONF_USE_RESPONSES_API, False))
 
     def _is_vision_model(self, model: str | None) -> bool:
         """Check if a model supports vision/attachments."""
@@ -510,6 +553,121 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
                 **extra_params,
             }
 
+    async def _build_responses_payload(
+        self,
+        user_message: str,
+        attachments: list[Any],
+        session: aiohttp.ClientSession,
+        model: str,
+    ) -> dict[str, Any]:
+        """Build a v1 Responses API payload with or without attachments."""
+        if attachments:
+            content: list[dict[str, Any]] = [{"type": "input_text", "text": user_message}]
+            for attachment in attachments:
+                try:
+                    image_data = await self._process_attachment(attachment, session)
+                    if image_data:
+                        # In the Responses API, image_url is a plain string.
+                        content.append({
+                            "type": "input_image",
+                            "image_url": f"data:image/jpeg;base64,{image_data}",
+                        })
+                except Exception as err:
+                    _LOGGER.warning("Failed to process attachment: %s", err)
+            input_value: Any = [{"role": "user", "content": content}]
+        else:
+            input_value = [{"role": "user", "content": user_message}]
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": input_value,
+            "max_output_tokens": MAX_COMPLETION_TOKENS,
+        }
+        # Reasoning models only accept the default temperature.
+        if not _is_reasoning_model(model):
+            payload["temperature"] = DEFAULT_TEMPERATURE
+        if self.web_search_enabled:
+            payload["tools"] = [{"type": "web_search"}]
+            payload["tool_choice"] = "auto"
+        return payload
+
+    def _extract_responses_text(self, result: dict[str, Any]) -> str:
+        """Extract the assistant text from a v1 Responses API result.
+
+        The output array can contain reasoning and web_search_call items
+        alongside the message, so filter by type rather than position.
+        """
+        text_parts: list[str] = []
+        for item in result.get("output") or []:
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content") or []:
+                if content.get("type") == "output_text":
+                    text_parts.append(content.get("text") or "")
+        return "".join(text_parts).strip()
+
+    async def _generate_data_via_responses(
+        self,
+        task: ai_task.GenDataTask,
+        chat_log: conversation.ChatLog,
+        user_message: str,
+        attachments: list[Any],
+        session: aiohttp.ClientSession,
+    ) -> ai_task.GenDataTaskResult:
+        """Handle a generate data task via the v1 Responses API."""
+        model_to_use = self.chat_model
+        payload = await self._build_responses_payload(
+            user_message, attachments, session, model_to_use
+        )
+        headers = self._get_headers()
+
+        try:
+            async with session.post(
+                f"{self._endpoint}{RESPONSES_API_PATH}",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    _LOGGER.error("Azure AI Responses API error: %s", error_text)
+                    self._handle_api_error(response.status, error_text, model_to_use)
+
+                result = await response.json()
+
+                if result.get("status") == "incomplete":
+                    reason = (result.get("incomplete_details") or {}).get("reason")
+                    _LOGGER.error(
+                        "Azure AI response incomplete (reason=%s): %s", reason, result
+                    )
+                    raise HomeAssistantError(
+                        "Azure AI returned an incomplete response"
+                        + (" - the model hit its token limit before producing"
+                           " output (try a shorter task)"
+                           if reason == "max_output_tokens" else "")
+                    )
+
+                text = self._extract_responses_text(result)
+                if not text:
+                    _LOGGER.error(
+                        "Azure AI Responses API returned empty content: %s", result
+                    )
+                    raise HomeAssistantError("Azure AI returned an empty response")
+
+                if task.structure:
+                    data = self._parse_structured_response(text)
+                    return ai_task.GenDataTaskResult(
+                        conversation_id=chat_log.conversation_id,
+                        data=data,
+                    )
+                return ai_task.GenDataTaskResult(
+                    conversation_id=chat_log.conversation_id,
+                    data=text,
+                )
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Error communicating with Azure AI: %s", err)
+            raise HomeAssistantError(f"Error communicating with Azure AI: {err}") from err
+
     async def _handle_flux_image_edit(
         self, 
         session: aiohttp.ClientSession, 
@@ -837,6 +995,12 @@ class AzureAITaskEntity(ai_task.AITaskEntity):
                     "Respond ONLY with valid JSON, no markdown, code blocks, or explanations."
                 )
         
+        # Route via the v1 Responses API when enabled (required for web search)
+        if self.use_responses_api:
+            return await self._generate_data_via_responses(
+                task, chat_log, user_message, attachments, session
+            )
+
         # Build the payload using the helper method
         payload = await self._build_chat_payload(user_message, attachments, session, self.chat_model)
         model_to_use = self.chat_model

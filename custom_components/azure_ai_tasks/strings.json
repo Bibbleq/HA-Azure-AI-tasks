@@ -9,7 +9,9 @@
           "endpoint": "Azure AI Endpoint URL",
           "api_key": "API Key",
           "chat_model": "Chat Model (optional)",
-          "image_model": "Image Model (optional)"
+          "image_model": "Image Model (optional)",
+          "use_responses_api": "Use Responses API (v1) for chat tasks",
+          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
         }
       },
       "reconfigure": {
@@ -20,7 +22,9 @@
           "endpoint": "Azure AI Endpoint URL",
           "api_key": "API Key",
           "chat_model": "Chat Model (optional)",
-          "image_model": "Image Model (optional)"
+          "image_model": "Image Model (optional)",
+          "use_responses_api": "Use Responses API (v1) for chat tasks",
+          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
         }
       }
     },
@@ -41,7 +45,9 @@
         "description": "Configure your preferred models. At least one model must be configured.",
         "data": {
           "chat_model": "Chat Model (optional)",
-          "image_model": "Image Model (optional)"
+          "image_model": "Image Model (optional)",
+          "use_responses_api": "Use Responses API (v1) for chat tasks",
+          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
         }
       }
     },

@@ -14,11 +14,13 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.core import callback, HomeAssistant
 
 from .const import (
-    CONF_API_KEY, 
-    CONF_ENDPOINT, 
+    CONF_API_KEY,
+    CONF_ENDPOINT,
     CONF_CHAT_MODEL,
     CONF_IMAGE_MODEL,
-    DEFAULT_NAME, 
+    CONF_USE_RESPONSES_API,
+    CONF_ENABLE_WEB_SEARCH,
+    DEFAULT_NAME,
     DEFAULT_CHAT_MODEL,
     DEFAULT_IMAGE_MODEL,
     DOMAIN,
@@ -36,6 +38,8 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_API_KEY): str,
         vol.Optional(CONF_CHAT_MODEL, default=""): str,
         vol.Optional(CONF_IMAGE_MODEL, default=""): str,
+        vol.Optional(CONF_USE_RESPONSES_API, default=False): bool,
+        vol.Optional(CONF_ENABLE_WEB_SEARCH, default=False): bool,
     }
 )
 
@@ -130,6 +134,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_API_KEY: user_input[CONF_API_KEY],
                             CONF_CHAT_MODEL: chat_model,
                             CONF_IMAGE_MODEL: image_model,
+                            CONF_USE_RESPONSES_API: user_input.get(CONF_USE_RESPONSES_API, False),
+                            CONF_ENABLE_WEB_SEARCH: user_input.get(CONF_ENABLE_WEB_SEARCH, False),
                         },
                         # Models now live in data; clear any stale options copy so
                         # they can't shadow the reconfigured values.
@@ -149,6 +155,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_API_KEY, default=current.get(CONF_API_KEY, "")): str,
                 vol.Optional(CONF_CHAT_MODEL, default=current.get(CONF_CHAT_MODEL, "")): str,
                 vol.Optional(CONF_IMAGE_MODEL, default=current.get(CONF_IMAGE_MODEL, "")): str,
+                vol.Optional(CONF_USE_RESPONSES_API, default=bool(current.get(CONF_USE_RESPONSES_API, False))): bool,
+                vol.Optional(CONF_ENABLE_WEB_SEARCH, default=bool(current.get(CONF_ENABLE_WEB_SEARCH, False))): bool,
             }
         )
         return self.async_show_form(
@@ -213,10 +221,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors=errors,
                 )
             
-            # Create the final data 
+            # Create the final data
             final_data = {
                 CONF_CHAT_MODEL: chat_model,
                 CONF_IMAGE_MODEL: image_model,
+                CONF_USE_RESPONSES_API: user_input.get(CONF_USE_RESPONSES_API, False),
+                CONF_ENABLE_WEB_SEARCH: user_input.get(CONF_ENABLE_WEB_SEARCH, False),
             }
             
             _LOGGER.info("Saving configuration: %s", final_data)
@@ -246,9 +256,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         chat_display = current_chat_model if current_chat_model else "[None - leave empty to disable chat]"
         image_display = current_image_model if current_image_model else "[None - leave empty to disable images]"
 
+        if CONF_USE_RESPONSES_API in self._config_entry.options:
+            current_responses = bool(self._config_entry.options[CONF_USE_RESPONSES_API])
+        else:
+            current_responses = bool(self._config_entry.data.get(CONF_USE_RESPONSES_API, False))
+
+        if CONF_ENABLE_WEB_SEARCH in self._config_entry.options:
+            current_web_search = bool(self._config_entry.options[CONF_ENABLE_WEB_SEARCH])
+        else:
+            current_web_search = bool(self._config_entry.data.get(CONF_ENABLE_WEB_SEARCH, False))
+
         return vol.Schema(
             {
                 vol.Optional(CONF_CHAT_MODEL, default=chat_display): str,
                 vol.Optional(CONF_IMAGE_MODEL, default=image_display): str,
+                vol.Optional(CONF_USE_RESPONSES_API, default=current_responses): bool,
+                vol.Optional(CONF_ENABLE_WEB_SEARCH, default=current_web_search): bool,
             }
         )
