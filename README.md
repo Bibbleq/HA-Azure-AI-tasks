@@ -26,6 +26,7 @@ A Home Assistant custom integration that facilitates AI tasks using Azure AI ser
 - **Multiple entry support** - use different API endpoints and keys for different purposes
 - **🌐 Responses API (v1) support** - opt in to Azure's stable v1 Responses API for chat tasks (no preview api-version pinning)
 - **🔎 Web search grounding** - let the model search the web (Grounding with Bing) and return up-to-date answers
+- **📋 Model picker** - setup, reconfigure, and options flows list the model deployments found on your Azure resource (you can still type a deployment name manually)
 - Compatible with Azure OpenAI and other Azure AI services
 - HACS ready for easy installation
 
@@ -59,12 +60,10 @@ Or replace steps 1-6 with this:
 
 1. Go to Settings → Devices & Services → Add Integration
 2. Search for "Azure AI Tasks"
-3. Enter your Azure AI endpoint URL (make sure you use the Azure OpenAI URL - i.e. https://USE-YOUR-RESOURCE-URL.openai.azure.com)
-4. Enter your API key
-5. **Enter your preferred chat model** (gpt-35-turbo, gpt-4, gpt-4o, etc.) - leave empty for image-only entities
-6. **Enter your preferred image model** (dall-e-2, dall-e-3, etc.) - leave empty for chat-only entities  
-7. Give your integration a name
-8. Click Submit
+3. Give your integration a name, enter your Azure AI endpoint URL (make sure you use the Azure OpenAI URL - i.e. https://USE-YOUR-RESOURCE-URL.openai.azure.com) and your API key, then click Submit
+4. On the next step, **pick your chat and/or image models** from the deployments found on your Azure resource (or type a deployment name manually) - leave a picker on `[None...]` for chat-only or image-only entities
+5. Optionally enable the **Responses API (v1)** and/or **web search** toggles
+6. Click Submit
 
 <img width="383" height="478" alt="image" src="https://github.com/user-attachments/assets/8932c51a-8fcb-42bc-9e22-ead143c610d7" />
 
