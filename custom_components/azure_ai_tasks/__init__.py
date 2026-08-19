@@ -79,6 +79,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Azure AI Tasks from a config entry."""
     # Check Home Assistant version compatibility
     _check_ha_version()
+
+    # Temporary diagnostic: confirm the translations file survived install
+    # (investigating config-flow translations not being served).
+    def _list_files() -> str:
+        from pathlib import Path
+        base = Path(__file__).parent
+        entries = sorted(
+            str(p.relative_to(base)) for p in base.rglob("*") if p.is_file()
+        )
+        return ", ".join(entries)
+
+    _LOGGER.info("azure_ai_tasks files: %s", await hass.async_add_executor_job(_list_files))
     
     # Set up the integration
     hass.data.setdefault(DOMAIN, {})
