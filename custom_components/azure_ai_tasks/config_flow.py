@@ -1,6 +1,7 @@
 """Config flow for Azure AI Tasks integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -12,6 +13,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -39,11 +41,15 @@ _LOGGER = logging.getLogger(__name__)
 NONE_CHAT_LABEL = "[None - leave empty to disable chat]"
 NONE_IMAGE_LABEL = "[None - leave empty to disable images]"
 
+# Suffix shown on chat models that fail the Responses API capability probe.
+NO_RESPONSES_SUFFIX = " (no Responses API / web search)"
+
 # Legacy data-plane deployments listing - the only deployment-name source that
 # works with just the endpoint + api-key (the official listing API lives on the
 # ARM management plane and needs Entra credentials).
 DEPLOYMENTS_API_VERSION = "2023-03-15-preview"
 LIST_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
+PROBE_TIMEOUT = aiohttp.ClientTimeout(total=8)
 # A v1 /models result much larger than any realistic deployment count means we
 # got the base-model catalogue instead of deployments - discard it.
 MAX_PLAUSIBLE_DEPLOYMENTS = 50
@@ -66,11 +72,29 @@ def _clean_model(value: Any) -> str:
     return value
 
 
-def _model_selector(models: list[str], none_label: str, current: str = "") -> SelectSelector:
-    """Build a model dropdown that also accepts typed custom values."""
-    options = [none_label, *models]
-    if current and current not in options:
-        options.append(current)
+def _model_selector(
+    models: list[str],
+    none_label: str,
+    current: str = "",
+    responses_support: dict[str, bool | None] | None = None,
+) -> SelectSelector:
+    """Build a model dropdown that also accepts typed custom values.
+
+    When a responses_support map is given, models known not to support the
+    Responses API are labelled so the limitation is visible in the picker
+    (HA forms cannot conditionally disable options, so we annotate and
+    validate on submit instead).
+    """
+    options: list[SelectOptionDict] = [
+        SelectOptionDict(value=none_label, label=none_label)
+    ]
+    for name in models:
+        label = name
+        if responses_support and responses_support.get(name) is False:
+            label = f"{name}{NO_RESPONSES_SUFFIX}"
+        options.append(SelectOptionDict(value=name, label=label))
+    if current and current != none_label and current not in models:
+        options.append(SelectOptionDict(value=current, label=current))
     return SelectSelector(
         SelectSelectorConfig(
             options=options,
@@ -148,6 +172,52 @@ async def _async_list_deployments(
     return []
 
 
+async def _async_probe_responses_support(
+    hass: HomeAssistant, endpoint: str, api_key: str, model: str
+) -> bool | None:
+    """Probe whether a deployment supports the v1 Responses API.
+
+    Sends an intentionally invalid request (max_output_tokens below the
+    API minimum of 16) so no tokens are ever generated: deployments that
+    support the API return a parameter-validation error, deployments that
+    don't return an 'operation is unsupported' / 'model not supported'
+    error. Returns None when the probe is inconclusive (network issues).
+    """
+    session = async_get_clientsession(hass)
+    try:
+        async with session.post(
+            f"{endpoint.rstrip('/')}/openai/v1/responses",
+            headers={"api-key": api_key},
+            json={"model": model, "input": "ping", "max_output_tokens": 1},
+            timeout=PROBE_TIMEOUT,
+        ) as response:
+            if response.status == 200:
+                return True
+            text = (await response.text()).lower()
+            if "operation is unsupported" in text or "model not supported" in text:
+                return False
+            # Any other error (e.g. the expected max_output_tokens validation
+            # complaint) means the endpoint understood the request.
+            return True
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.debug("Responses probe failed for %s: %s", model, err)
+        return None
+
+
+async def _async_probe_models(
+    hass: HomeAssistant, endpoint: str, api_key: str, models: list[str]
+) -> dict[str, bool | None]:
+    """Probe Responses API support for a list of deployments concurrently."""
+    if not models or not endpoint or not api_key:
+        return {}
+    results = await asyncio.gather(
+        *(_async_probe_responses_support(hass, endpoint, api_key, m) for m in models)
+    )
+    support = dict(zip(models, results))
+    _LOGGER.debug("Responses API support probe: %s", support)
+    return support
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Azure AI Tasks."""
 
@@ -157,6 +227,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._user_data: dict[str, Any] = {}
         self._available_models: list[str] = []
+        self._responses_support: dict[str, bool | None] = {}
 
     @staticmethod
     @callback
@@ -196,11 +267,33 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._available_models = await _async_list_deployments(
                     self.hass, user_input[CONF_ENDPOINT], user_input[CONF_API_KEY]
                 )
+                self._responses_support = await _async_probe_models(
+                    self.hass,
+                    user_input[CONF_ENDPOINT],
+                    user_input[CONF_API_KEY],
+                    self._available_models,
+                )
                 return await self.async_step_models()
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
+
+    def _validate_responses_combo(
+        self, chat_model: str, user_input: dict[str, Any]
+    ) -> str | None:
+        """Return an error key if Responses/web search is enabled on an
+        unsupported chat model (probe result False; unknown models pass)."""
+        wants_responses = user_input.get(CONF_USE_RESPONSES_API, False) or user_input.get(
+            CONF_ENABLE_WEB_SEARCH, False
+        )
+        if (
+            wants_responses
+            and chat_model
+            and self._responses_support.get(chat_model) is False
+        ):
+            return "responses_not_supported"
+        return None
 
     async def async_step_models(
         self, user_input: dict[str, Any] | None = None
@@ -214,6 +307,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not chat_model and not image_model:
                 errors["base"] = "no_models_configured"
+            elif error := self._validate_responses_combo(chat_model, user_input):
+                errors["base"] = error
             else:
                 data = {
                     **self._user_data,
@@ -229,7 +324,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Optional(CONF_CHAT_MODEL, default=NONE_CHAT_LABEL): _model_selector(
-                    self._available_models, NONE_CHAT_LABEL
+                    self._available_models,
+                    NONE_CHAT_LABEL,
+                    responses_support=self._responses_support,
                 ),
                 vol.Optional(CONF_IMAGE_MODEL, default=NONE_IMAGE_LABEL): _model_selector(
                     self._available_models, NONE_IMAGE_LABEL
@@ -260,6 +357,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not chat_model and not image_model:
                 errors["base"] = "no_models_configured"
+            elif error := self._validate_responses_combo(chat_model, user_input):
+                errors["base"] = error
             else:
                 try:
                     await self._test_credentials(
@@ -300,6 +399,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             reconfigure_entry.data.get(CONF_ENDPOINT, ""),
             reconfigure_entry.data.get(CONF_API_KEY, ""),
         )
+        self._responses_support = await _async_probe_models(
+            self.hass,
+            reconfigure_entry.data.get(CONF_ENDPOINT, ""),
+            reconfigure_entry.data.get(CONF_API_KEY, ""),
+            available_models,
+        )
 
         current_chat = _clean_model(current.get(CONF_CHAT_MODEL, ""))
         current_image = _clean_model(current.get(CONF_IMAGE_MODEL, ""))
@@ -311,7 +416,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_API_KEY, default=current.get(CONF_API_KEY, "")): str,
                 vol.Optional(
                     CONF_CHAT_MODEL, default=current_chat or NONE_CHAT_LABEL
-                ): _model_selector(available_models, NONE_CHAT_LABEL, current_chat),
+                ): _model_selector(
+                    available_models,
+                    NONE_CHAT_LABEL,
+                    current_chat,
+                    responses_support=self._responses_support,
+                ),
                 vol.Optional(
                     CONF_IMAGE_MODEL, default=current_image or NONE_IMAGE_LABEL
                 ): _model_selector(available_models, NONE_IMAGE_LABEL, current_image),
@@ -347,6 +457,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self._config_entry = config_entry
+        self._responses_support: dict[str, bool | None] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -360,10 +471,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             _LOGGER.info("Final values - chat: '%s', image: '%s'", chat_model, image_model)
 
-            # Check if both are empty
+            errors: dict[str, str] = {}
             if not chat_model and not image_model:
-                _LOGGER.warning("No models configured, showing error")
-                errors = {"base": "no_models_configured"}
+                errors["base"] = "no_models_configured"
+            else:
+                wants_responses = user_input.get(
+                    CONF_USE_RESPONSES_API, False
+                ) or user_input.get(CONF_ENABLE_WEB_SEARCH, False)
+                if (
+                    wants_responses
+                    and chat_model
+                    and self._responses_support.get(chat_model) is False
+                ):
+                    errors["base"] = "responses_not_supported"
+
+            if errors:
                 return self.async_show_form(
                     step_id="init",
                     data_schema=await self._get_options_schema(),
@@ -402,10 +524,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.info("Schema defaults - chat: '%s', image: '%s'",
                      current_chat_model, current_image_model)
 
-        available_models = await _async_list_deployments(
-            self.hass,
-            self._config_entry.data.get(CONF_ENDPOINT, ""),
-            self._config_entry.data.get(CONF_API_KEY, ""),
+        endpoint = self._config_entry.data.get(CONF_ENDPOINT, "")
+        api_key = self._config_entry.data.get(CONF_API_KEY, "")
+        available_models = await _async_list_deployments(self.hass, endpoint, api_key)
+        self._responses_support = await _async_probe_models(
+            self.hass, endpoint, api_key, available_models
         )
 
         if CONF_USE_RESPONSES_API in self._config_entry.options:
@@ -422,7 +545,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Optional(
                     CONF_CHAT_MODEL, default=current_chat_model or NONE_CHAT_LABEL
-                ): _model_selector(available_models, NONE_CHAT_LABEL, current_chat_model),
+                ): _model_selector(
+                    available_models,
+                    NONE_CHAT_LABEL,
+                    current_chat_model,
+                    responses_support=self._responses_support,
+                ),
                 vol.Optional(
                     CONF_IMAGE_MODEL, default=current_image_model or NONE_IMAGE_LABEL
                 ): _model_selector(available_models, NONE_IMAGE_LABEL, current_image_model),

@@ -8,21 +8,31 @@
           "name": "Name",
           "endpoint": "Azure AI Endpoint URL",
           "api_key": "API Key"
+        },
+        "data_description": {
+          "endpoint": "Your Azure OpenAI resource URL, e.g. https://YOUR-RESOURCE.openai.azure.com",
+          "api_key": "A key from your Azure OpenAI resource (Keys and Endpoint blade)"
         }
       },
       "models": {
         "title": "Choose models",
-        "description": "Pick from the model deployments found on your Azure resource, or type a deployment name manually. At least one model must be configured.",
+        "description": "Pick from the model deployments found on your Azure resource, or type a deployment name manually. At least one model must be configured. Models marked '(no Responses API / web search)' can only use the Chat Completions path.",
         "data": {
           "chat_model": "Chat Model (optional)",
           "image_model": "Image Model (optional)",
           "use_responses_api": "Use Responses API (v1) for chat tasks",
-          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
+          "enable_web_search": "Enable web search"
+        },
+        "data_description": {
+          "chat_model": "Deployment used for text and data generation. See [model support](https://learn.microsoft.com/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure) for capabilities.",
+          "image_model": "Deployment used for image generation (DALL-E, gpt-image-1, FLUX).",
+          "use_responses_api": "Routes chat tasks to Azure's stable v1 Responses API - required for web search. [Responses API docs](https://learn.microsoft.com/azure/foundry/openai/how-to/responses)",
+          "enable_web_search": "Lets the model search the web (Grounding with Bing) before answering. Needs a GPT-4-class or later model, incurs per-search costs, and searched data leaves your Azure compliance boundary. Automatically uses the Responses API. [Web search docs](https://learn.microsoft.com/azure/foundry/openai/how-to/web-search)"
         }
       },
       "reconfigure": {
         "title": "Reconfigure Azure AI Tasks",
-        "description": "Update your Azure AI endpoint, API key, and model(s). At least one model must be configured.",
+        "description": "Update your Azure AI endpoint, API key, and model(s). At least one model must be configured. Models marked '(no Responses API / web search)' can only use the Chat Completions path.",
         "data": {
           "name": "Name",
           "endpoint": "Azure AI Endpoint URL",
@@ -30,14 +40,21 @@
           "chat_model": "Chat Model (optional)",
           "image_model": "Image Model (optional)",
           "use_responses_api": "Use Responses API (v1) for chat tasks",
-          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
+          "enable_web_search": "Enable web search"
+        },
+        "data_description": {
+          "chat_model": "Deployment used for text and data generation. See [model support](https://learn.microsoft.com/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure) for capabilities.",
+          "image_model": "Deployment used for image generation (DALL-E, gpt-image-1, FLUX).",
+          "use_responses_api": "Routes chat tasks to Azure's stable v1 Responses API - required for web search. [Responses API docs](https://learn.microsoft.com/azure/foundry/openai/how-to/responses)",
+          "enable_web_search": "Lets the model search the web (Grounding with Bing) before answering. Needs a GPT-4-class or later model, incurs per-search costs, and searched data leaves your Azure compliance boundary. Automatically uses the Responses API. [Web search docs](https://learn.microsoft.com/azure/foundry/openai/how-to/web-search)"
         }
       }
     },
     "error": {
       "unknown": "Unexpected error occurred",
       "cannot_connect": "Failed to connect - check the endpoint URL and API key",
-      "no_models_configured": "At least one model (chat or image) must be configured"
+      "no_models_configured": "At least one model (chat or image) must be configured",
+      "responses_not_supported": "The selected chat model does not support the Responses API, which web search requires. Choose a different chat model or turn off the Responses API / web search toggles."
     },
     "abort": {
       "already_configured": "Device is already configured",
@@ -48,17 +65,24 @@
     "step": {
       "init": {
         "title": "Azure AI Tasks Options",
-        "description": "Configure your preferred models. Pick from the deployments found on your Azure resource, or type a deployment name manually. At least one model must be configured.",
+        "description": "Configure your preferred models. Pick from the deployments found on your Azure resource, or type a deployment name manually. At least one model must be configured. Models marked '(no Responses API / web search)' can only use the Chat Completions path.",
         "data": {
           "chat_model": "Chat Model (optional)",
           "image_model": "Image Model (optional)",
           "use_responses_api": "Use Responses API (v1) for chat tasks",
-          "enable_web_search": "Enable web search (uses Bing grounding; requires the Responses API and incurs additional costs)"
+          "enable_web_search": "Enable web search"
+        },
+        "data_description": {
+          "chat_model": "Deployment used for text and data generation. See [model support](https://learn.microsoft.com/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure) for capabilities.",
+          "image_model": "Deployment used for image generation (DALL-E, gpt-image-1, FLUX).",
+          "use_responses_api": "Routes chat tasks to Azure's stable v1 Responses API - required for web search. [Responses API docs](https://learn.microsoft.com/azure/foundry/openai/how-to/responses)",
+          "enable_web_search": "Lets the model search the web (Grounding with Bing) before answering. Needs a GPT-4-class or later model, incurs per-search costs, and searched data leaves your Azure compliance boundary. Automatically uses the Responses API. [Web search docs](https://learn.microsoft.com/azure/foundry/openai/how-to/web-search)"
         }
       }
     },
     "error": {
-      "no_models_configured": "At least one model (chat or image) must be configured"
+      "no_models_configured": "At least one model (chat or image) must be configured",
+      "responses_not_supported": "The selected chat model does not support the Responses API, which web search requires. Choose a different chat model or turn off the Responses API / web search toggles."
     }
   }
 }
